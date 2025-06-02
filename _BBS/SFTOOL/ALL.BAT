@@ -3,8 +3,7 @@ set output=\_bbs\sf
 
 rem you shouldn't need to change anything below this.
 
-set index_f=00_index.txt
-set in_type=opus
+set in_type=cica
 
 del %output%\*.*
 
@@ -14,4 +13,3 @@ del %output%\*.*
 set cdrom=
 set output=
 set in_type=
-set index_f=

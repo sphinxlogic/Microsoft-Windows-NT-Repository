@@ -108,8 +108,6 @@ main(int argc, char **argv) {
 			p = r;
 		*p = 0;
 		strcpy(dirname, buf);
-		if (dirname[strlen(dirname) - 1] == '\\')
-			dirname[strlen(dirname) - 1] = '\0';
 		*p = ' ';
 		while (isspace(*p))
 			++p;

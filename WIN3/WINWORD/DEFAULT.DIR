@@ -1,0 +1,89 @@
+From comp.windows.ms Thu Jan 10 12:18:20 1991
+From: fredf@microsoft.UUCP (Fred FREELAND)
+Date: 10 Jan 91 05:08:01 GMT
+Newsgroups: comp.windows.ms
+Subject: Default Directory for Word for Windows solution
+
+
+I've seen a lot of discussion in recent weeks about how to get Microsoft
+Word for Windows to remember the last directory you were in from session
+to session.  While there are a number of somewhat kludgy ways to do this,
+I offer the following programatic solution. It's what I use every day and
+it works without fail.  Hopefully someone else out there in netland can
+make some good use of it.
+
+There are three routines that probably do not already exist in your version
+of Word for Windows, but they are recognized.  All you have to do is add
+the code shown below to macros with the names shown just above Sub MAIN for
+each case..
+
+The key to this whole scheme is the API call into Windows used by the
+AutoExit macro.  This is what writes the WIN.INI entry that can be retrieved
+when Word for Windows is next started.
+
+Enjoy!
+
+-------------------------Code Begins Here-----------------------------------
+AutoeExec
+Sub MAIN
+  ' This procedure checks attempts to return to the last directory used by
+  ' Microsoft Word for Windows. It checks the WIN.INI file for a
+  ' DefaultDirectory entry and changes to the directory path found there.
+  ' No action is taken if no entry exists
+
+  AName$ = "Microsoft Word"                   ' Set Application Name.
+  KName$ = "DefaultDirectory"                 ' Set Key name.
+  NewDir$ = GetProfileString$(AName$, KName$) ' Get the last directory used.
+  ChDir NewDir$                               ' Change directory.
+End Sub
+
+AutoOpen
+Sub MAIN
+  ' This procedure determines the path of the file that was just opened.
+  ' It then causes Word for Windows to make that directory the current
+  ' default directory for future FileOpen operations.
+
+  Path$ = ""                              ' Initialize Path$.
+  LastFile$ = FileName$(1)                ' Get path of last file opened.
+  I = Len(LastFile$)                      ' Get length of filespec.
+  While Path$ = ""
+    If Mid$(LastFile$, I, 1) = "\" Then   ' Starting from the right,
+      Path$ = Left$(LastFile$, I - 1)     ' look for the last directory
+    End If                                ' delimiter (\). Take everything
+                                          ' to the left of the delimiter
+                                          ' for the path.
+    I = I - 1
+  Wend
+  ChDir Path$                             ' Change directory
+End Sub
+
+AutoExit
+'WIN API procedure to write a WIN.INI entry.
+Declare Function WriteProfileString Lib "Kernel"(AName$, KName$, Repl$) As Integer
+
+Sub MAIN
+  ' This procedure determines the directory path of the last file opened.
+  ' It then writes the path to the DefaultDirectory entry in the WIN.INI.
+
+  AName$ = "Microsoft Word"                ' Set Application Name.
+  KName$ = "DefaultDirectory"              ' Set Key Name.
+  Repl$ = ""                               ' Initialize replacement string.
+  LastFile$ = FileName$(1)                 ' Get path of last file opened.
+  I = Len(LastFile$)                       ' Get length of filespec.
+  While Repl$ = ""
+    If Mid$(LastFile$, I, 1) = "\" Then    ' Starting from the right,
+      Repl$ = Left$(LastFile$, I - 1)      ' look for the last directory
+    End If                                 ' delimiter (\). Take everything
+                                           ' to the left of the delimiter
+                                           ' for the path.
+    I = I - 1
+  Wend
+  X = WriteProfileString(AName$, KName$, Repl$)   ' Write to WIN.INI file.
+End Sub
+---------------------------Code Ends Here-----------------------------------
+
+-- 
+Frederick F. Freeland Jr.                        "Of all the things I've lost,  Microsoft Corporation                               I miss my mind the most!"   One Microsoft Way  
+Redmond, WA 98052 (206) 882-8080                                                                                                                                internet: fredf@microsoft.beaver.washington.EDU                                 arpanet:  fredf%microsoft@uw-beaver.ARPA
+uucp:     uunet!microsoft!fredf                                                                                                                                 Opinions expressed over this signature are my OWN and not those of my employer! 
+

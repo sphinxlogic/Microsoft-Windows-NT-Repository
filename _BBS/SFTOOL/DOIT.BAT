@@ -6,6 +6,6 @@ echo path: %1 >> %output%\sffiles.%2
 type header3 >> %output%\sffiles.%2
 type %cdrom%\_bbs\sftool\header2 >> %output%\sffiles.%2
 cd %cdrom%%1
-%cdrom%\_bbs\c %in_type% spitfire %cdrom%. < %cdrom%%index_f% >> %output%\sffiles.%2
+%cdrom%\_bbs\c %in_type% spitfire %cdrom%%1 < %cdrom%00_index.txt >> %output%\sffiles.%2
 cd %cdrom%\_bbs\sftool
 

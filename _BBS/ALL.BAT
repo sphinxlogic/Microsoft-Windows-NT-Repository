@@ -6,6 +6,7 @@ call all
 cd ..
 cd RBBSTOOL
 call all
+call makeffs
 cd ..
 cd SFTOOL
 call all
@@ -19,6 +20,7 @@ cd \
 ncd /r
 mv \ncdtree\treeinfo.ncd \
 rd \ncdtree
+cd \_bbs
 
 cd \
 0del /s 

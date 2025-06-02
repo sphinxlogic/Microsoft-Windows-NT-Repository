@@ -1,7 +1,6 @@
 set cdrom=m:
 set output=m:\_bbs\wc30
-set in_type=opus
-set index_f=00_index.txt
+set in_type=cica
 
 del logfile
 del %output%\allfiles.txt
